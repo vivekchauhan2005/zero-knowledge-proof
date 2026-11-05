@@ -1,0 +1,24 @@
+{
+  "name": "zero-knowledge-proof-project",
+  "version": "1.0.0",
+  "description": "Zero Knowledge Proof (ZKP) Authentication System using Schnorr Protocol - Cryptography & Network Security Project",
+  "scripts": {
+    "start:backend": "npm start --prefix backend",
+    "start:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build:frontend": "npm run build --prefix frontend",
+    "test:backend": "npm test --prefix backend",
+    "test": "npm test --prefix backend"
+  },
+  "keywords": [
+    "zero-knowledge-proof",
+    "schnorr-protocol",
+    "cryptography",
+    "authentication",
+    "cybersecurity"
+  ],
+  "author": "3rd Year CSE Cryptography & Network Security",
+  "license": "MIT"
+}
+
