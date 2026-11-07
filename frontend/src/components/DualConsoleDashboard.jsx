@@ -42,11 +42,11 @@ export default function DualConsoleDashboard({ onProofComplete }) {
     try {
       setLoading(true);
       const randX = Math.floor(Math.random() * 9) + 1;
+      setSecretX(randX);
+      setAliceRealSecret(randX);
       const pubY = computePublicKey(BigInt(randX)).toString();
       await api.registerUser(username, pubY);
-      setAliceRealSecret(randX);
       setServerRegisteredPubKey(pubY);
-      setSecretX(randX);
       handleReset();
     } catch (err) {
       console.error('Failed to register new secret:', err);
@@ -55,13 +55,35 @@ export default function DualConsoleDashboard({ onProofComplete }) {
     }
   };
 
+  // Handle manual typing of Secret Key x
+  const handleSecretChange = async (val) => {
+    const parsed = parseInt(val);
+    const num = isNaN(parsed) ? 1 : Math.max(1, Math.min(10, parsed));
+    setSecretX(num);
+    setAliceRealSecret(num);
+    const pubY = computePublicKey(BigInt(num)).toString();
+    setServerRegisteredPubKey(pubY);
+    handleReset();
+    try {
+      await api.registerUser(username, pubY);
+    } catch (err) {
+      console.error('Failed to register typed key:', err);
+    }
+  };
+
+  // Handle manual typing of Nonce r
+  const handleNonceChange = (val) => {
+    const parsed = parseInt(val);
+    const num = isNaN(parsed) ? 1 : Math.max(1, Math.min(10, parsed));
+    setNonceR(num);
+    handleReset();
+  };
+
   // 1. SCENARIO A: HONEST PROVER (WILL ACCEPT)
   const setupHonestScenario = () => {
     setActiveScenario('honest');
     setUsername('alice');
     setSecretX(aliceRealSecret);
-    const freshNonce = Math.floor(Math.random() * 9) + 1;
-    setNonceR(freshNonce);
     handleReset();
   };
 
@@ -72,8 +94,6 @@ export default function DualConsoleDashboard({ onProofComplete }) {
     const wrongKeys = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(n => n !== aliceRealSecret);
     const randWrong = wrongKeys[Math.floor(Math.random() * wrongKeys.length)];
     setSecretX(randWrong);
-    const freshNonce = Math.floor(Math.random() * 9) + 1;
-    setNonceR(freshNonce);
     handleReset();
   };
 
@@ -82,8 +102,6 @@ export default function DualConsoleDashboard({ onProofComplete }) {
     setActiveScenario('tampered');
     setUsername('alice');
     setSecretX(aliceRealSecret);
-    const freshNonce = Math.floor(Math.random() * 9) + 1;
-    setNonceR(freshNonce);
     handleReset();
   };
 
@@ -105,13 +123,17 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       setErrorMsg(null);
       setVerificationResult(null);
 
-      // Random nonce r generated fresh
       const r = BigInt(nonceR || 5);
       const t = computeCommitment(r);
       setCommitmentT(t);
 
-      // Prover sends commitment t to server for user 'alice' with registered public key
-      const commitRes = await api.submitCommitment(username, serverRegisteredPubKey, t.toString());
+      // Register Alice's current secret key public key
+      const pubY = computePublicKey(BigInt(secretX)).toString();
+      await api.registerUser(username, pubY);
+      setServerRegisteredPubKey(pubY);
+
+      // Prover sends commitment t to server for user 'alice'
+      const commitRes = await api.submitCommitment(username, pubY, t.toString());
       const sId = commitRes.session.id;
       setSessionId(sId);
 
@@ -144,6 +166,10 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       setLoading(true);
       setErrorMsg(null);
 
+      if (responseZ === null) {
+        throw new Error('Please enter or calculate response z first');
+      }
+
       const result = await api.submitProof(sessionId, responseZ.toString());
       setVerificationResult(result);
       setStep(2);
@@ -163,36 +189,26 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       setErrorMsg(null);
       setVerificationResult(null);
 
-      // Fresh random nonce r generated on client
-      const freshR = Math.floor(Math.random() * 9) + 1;
-      setNonceR(freshR);
-      const r = BigInt(freshR);
-
-      let targetX = aliceRealSecret;
-      let activePubKey = serverRegisteredPubKey;
+      const r = BigInt(nonceR || 5);
+      let targetX = secretX;
       let shouldTamper = false;
+
+      // Always register Alice's chosen secret key
+      const pubY = computePublicKey(BigInt(secretX)).toString();
+      await api.registerUser(username, pubY);
+      setServerRegisteredPubKey(pubY);
 
       if (scenarioType === 'honest') {
         setActiveScenario('honest');
-        // Automatically picks a fresh random secret for Alice on every single run!
-        const randomX = Math.floor(Math.random() * 9) + 1;
-        const newPubY = computePublicKey(BigInt(randomX)).toString();
-        await api.registerUser(username, newPubY);
-        setAliceRealSecret(randomX);
-        setServerRegisteredPubKey(newPubY);
-        targetX = randomX;
-        setSecretX(randomX);
-        activePubKey = newPubY;
+        targetX = secretX;
       } else if (scenarioType === 'impostor') {
         setActiveScenario('impostor');
-        // Automatically picks a random wrong secret between 1 and 10 (excluding Alice's real secret)
-        const wrongKeys = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(n => n !== aliceRealSecret);
+        // Pick a wrong secret different from secretX
+        const wrongKeys = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(n => n !== secretX);
         targetX = wrongKeys[Math.floor(Math.random() * wrongKeys.length)];
-        setSecretX(targetX);
       } else if (scenarioType === 'tampered') {
         setActiveScenario('tampered');
-        targetX = aliceRealSecret;
-        setSecretX(aliceRealSecret);
+        targetX = secretX;
         shouldTamper = true;
       }
 
@@ -200,7 +216,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       const t = computeCommitment(r);
       setCommitmentT(t);
 
-      const commitRes = await api.submitCommitment('alice', activePubKey, t.toString());
+      const commitRes = await api.submitCommitment('alice', pubY, t.toString());
       const sId = commitRes.session.id;
       setSessionId(sId);
 
@@ -281,14 +297,14 @@ export default function DualConsoleDashboard({ onProofComplete }) {
             <div className="flex items-center justify-between mb-1.5">
               <span className="flex items-center space-x-1.5 text-emerald-400 font-bold text-xs">
                 <UserCheck className="w-4 h-4" />
-                <span>1. Test ACCEPT (Honest Alice)</span>
+                <span>1. Test ACCEPT (Uses Entered Secret x = {secretX})</span>
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
                 WILL PASS
               </span>
             </div>
             <p className="text-xs text-slate-300 leading-snug">
-              Takes a fresh random secret & nonce every click. <strong className="text-emerald-300">Always Accepted!</strong>
+              Tests proof with your entered secret <strong className="text-emerald-300">x = {secretX}</strong>. Equation will match!
             </p>
           </button>
 
@@ -312,7 +328,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
               </span>
             </div>
             <p className="text-xs text-slate-300 leading-snug">
-              Impostor uses a random wrong secret automatically. <strong className="text-rose-300">Always Rejected!</strong>
+              Impostor enters a wrong secret <strong className="text-rose-300">≠ {secretX}</strong>. Equation will mismatch!
             </p>
           </button>
 
@@ -405,42 +421,32 @@ export default function DualConsoleDashboard({ onProofComplete }) {
             <span className="text-xs font-mono text-purple-300">Identity: @{username}</span>
           </div>
 
-          {/* Secret Display - Masked by default so secret is not revealed */}
+          {/* Secret Display - Fully editable manual input! */}
           <div className="p-3.5 rounded-xl bg-navy-950 border border-purple-500/20 space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-300 font-semibold flex items-center space-x-1.5">
                 <Key className="w-3.5 h-3.5 text-purple-400" />
-                <span>Alice's Secret Key (x):</span>
+                <span>Alice's Secret Key (x ∈ [1, 10]):</span>
               </span>
               <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-1 bg-navy-900 px-2 py-0.5 rounded border border-purple-500/40">
-                  <input
-                    type={showSecret ? "text" : "password"}
-                    readOnly
-                    value={secretX}
-                    className="w-8 text-amber-300 font-mono font-bold text-center text-xs bg-transparent focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSecret(!showSecret)}
-                    className="text-slate-400 hover:text-purple-300 transition cursor-pointer"
-                    title={showSecret ? "Hide secret" : "Reveal secret"}
-                  >
-                    {showSecret ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={secretX}
+                  onChange={(e) => handleSecretChange(e.target.value)}
+                  className="w-14 px-2 py-1 rounded bg-navy-900 border border-purple-500/50 text-amber-300 font-mono font-bold text-center text-xs focus:outline-none focus:border-purple-400"
+                  title="Type any secret number from 1 to 10"
+                />
                 <button
                   type="button"
                   onClick={generateNewRandomSecret}
-                  className="px-2 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[10px] font-mono cursor-pointer transition flex items-center space-x-1"
-                  title="Generate a brand new random secret for Alice"
+                  className="px-2 py-1 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[10px] font-mono cursor-pointer transition flex items-center space-x-1"
+                  title="Pick a random secret"
                 >
                   <Sparkles className="w-2.5 h-2.5" />
-                  <span>Randomize</span>
+                  <span>Random</span>
                 </button>
-                <span className="text-[10px] text-slate-400">
-                  {activeScenario === 'honest' ? '(Alice Secret Key)' : '(Random Impostor Key)'}
-                </span>
               </div>
             </div>
 
@@ -450,27 +456,68 @@ export default function DualConsoleDashboard({ onProofComplete }) {
             </div>
           </div>
 
-          {/* Protocol Values Computed Locally */}
-          <div className="p-3.5 rounded-xl bg-navy-950 border border-navy-800 space-y-2 font-mono text-xs">
+          {/* Protocol Values - Step-by-step interactive inputs */}
+          <div className="p-3.5 rounded-xl bg-navy-950 border border-navy-800 space-y-2.5 font-mono text-xs">
+            {/* Nonce r Input */}
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Random Nonce (r):</span>
-              <span className="text-amber-400 font-bold">r = {nonceR}</span>
+              <span className="text-slate-400">Random Nonce (r ∈ [1, 10]):</span>
+              <div className="flex items-center space-x-1.5">
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={nonceR}
+                  onChange={(e) => handleNonceChange(e.target.value)}
+                  className="w-14 px-2 py-0.5 rounded bg-navy-900 border border-indigo-500/50 text-amber-400 font-bold text-center text-xs focus:outline-none focus:border-indigo-400"
+                  title="Type any nonce number from 1 to 10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setNonceR(Math.floor(Math.random() * 9) + 1)}
+                  className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px] hover:bg-indigo-500/30 cursor-pointer"
+                  title="Randomize nonce"
+                >
+                  🎲
+                </button>
+              </div>
             </div>
+
+            {/* Commitment t */}
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Commitment (t = 2^r mod 23):</span>
-              <span className="text-purple-300 font-bold">t = {commitmentT ? commitmentT.toString() : '9'}</span>
+              <span className="text-slate-400">Commitment (t = 2^{nonceR} mod 23):</span>
+              <span className="text-purple-300 font-bold">
+                t = {computeCommitment(BigInt(nonceR || 5)).toString()}
+              </span>
             </div>
+
+            {/* Server Challenge e */}
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Received Challenge (e):</span>
-              <span className="text-blue-400 font-bold">e = {challengeE ? challengeE.toString() : '4'}</span>
-            </div>
-            <div className="flex items-center justify-between pt-1 border-t border-navy-800">
-              <span className="text-slate-300 font-semibold">Response z = (r + e·x) mod 11:</span>
-              <span className={`font-bold px-2 py-0.5 rounded ${
-                activeScenario === 'tampered' ? 'text-amber-300 bg-amber-500/10' : 'text-emerald-400 bg-emerald-500/10'
-              }`}>
-                z = {responseZ !== null ? responseZ.toString() : '6'}
+              <span className="text-blue-400 font-bold">
+                {challengeE ? `e = ${challengeE.toString()}` : 'Click Step 1 to request...'}
               </span>
+            </div>
+
+            {/* Response z Input */}
+            <div className="flex items-center justify-between pt-1 border-t border-navy-800">
+              <div>
+                <span className="text-slate-300 font-semibold block">Response z = (r + e·x) mod 11:</span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  {challengeE ? `(${nonceR} + ${challengeE}×${secretX}) mod 11` : 'Computed on Step 1'}
+                </span>
+              </div>
+              <div className="flex items-center space-x-1.5">
+                <input
+                  type="number"
+                  min="0"
+                  max="10"
+                  value={responseZ !== null ? responseZ.toString() : ''}
+                  onChange={(e) => setResponseZ(e.target.value === '' ? null : BigInt(e.target.value))}
+                  placeholder="z"
+                  className="w-14 px-2 py-0.5 rounded bg-navy-900 border border-emerald-500/50 text-emerald-400 font-bold text-center text-xs focus:outline-none focus:border-emerald-400"
+                  title="Computed response or type to tamper"
+                />
+              </div>
             </div>
           </div>
 
