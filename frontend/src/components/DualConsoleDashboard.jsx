@@ -15,9 +15,13 @@ export default function DualConsoleDashboard({ onProofComplete }) {
   // Current active scenario: 'honest' | 'impostor' | 'tampered'
   const [activeScenario, setActiveScenario] = useState('honest');
 
-  // Parameters: p = 23, q = 11, g = 2, Alice's y = 8 (for x = 3)
+  // Alice's registered account parameters (dynamically randomized)
   const [username, setUsername] = useState('alice');
-  const [secretX, setSecretX] = useState(3); // Alice's real secret is 3
+  const [aliceRealSecret, setAliceRealSecret] = useState(3);
+  const [serverRegisteredPubKey, setServerRegisteredPubKey] = useState('8');
+
+  // Currently evaluated secret in Prover console (can be Alice's secret or Impostor's guess)
+  const [secretX, setSecretX] = useState(3);
   const [showSecret, setShowSecret] = useState(false);
 
   // Protocol state
@@ -33,11 +37,29 @@ export default function DualConsoleDashboard({ onProofComplete }) {
   const [verificationResult, setVerificationResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
 
+  // Generate a brand new random secret key for Alice
+  const generateNewRandomSecret = async () => {
+    try {
+      setLoading(true);
+      const randX = Math.floor(Math.random() * 9) + 1;
+      const pubY = computePublicKey(BigInt(randX)).toString();
+      await api.registerUser(username, pubY);
+      setAliceRealSecret(randX);
+      setServerRegisteredPubKey(pubY);
+      setSecretX(randX);
+      handleReset();
+    } catch (err) {
+      console.error('Failed to register new secret:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 1. SCENARIO A: HONEST PROVER (WILL ACCEPT)
   const setupHonestScenario = () => {
     setActiveScenario('honest');
     setUsername('alice');
-    setSecretX(3); // Real secret x = 3
+    setSecretX(aliceRealSecret);
     const freshNonce = Math.floor(Math.random() * 9) + 1;
     setNonceR(freshNonce);
     handleReset();
@@ -47,7 +69,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
   const setupImpostorScenario = () => {
     setActiveScenario('impostor');
     setUsername('alice');
-    const wrongKeys = [1, 2, 4, 5, 6, 7, 8, 9, 10];
+    const wrongKeys = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(n => n !== aliceRealSecret);
     const randWrong = wrongKeys[Math.floor(Math.random() * wrongKeys.length)];
     setSecretX(randWrong);
     const freshNonce = Math.floor(Math.random() * 9) + 1;
@@ -59,7 +81,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
   const setupTamperedScenario = () => {
     setActiveScenario('tampered');
     setUsername('alice');
-    setSecretX(3);
+    setSecretX(aliceRealSecret);
     const freshNonce = Math.floor(Math.random() * 9) + 1;
     setNonceR(freshNonce);
     handleReset();
@@ -83,13 +105,13 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       setErrorMsg(null);
       setVerificationResult(null);
 
-      // Random nonce r or fixed r=5 for clean presentation
+      // Random nonce r generated fresh
       const r = BigInt(nonceR || 5);
       const t = computeCommitment(r);
       setCommitmentT(t);
 
-      // Prover sends commitment t to server for user 'alice' (Alice's registered key y=8)
-      const commitRes = await api.submitCommitment(username, '8', t.toString());
+      // Prover sends commitment t to server for user 'alice' with registered public key
+      const commitRes = await api.submitCommitment(username, serverRegisteredPubKey, t.toString());
       const sId = commitRes.session.id;
       setSessionId(sId);
 
@@ -146,23 +168,31 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       setNonceR(freshR);
       const r = BigInt(freshR);
 
-      let targetX = 3;
+      let targetX = aliceRealSecret;
+      let activePubKey = serverRegisteredPubKey;
       let shouldTamper = false;
 
       if (scenarioType === 'honest') {
         setActiveScenario('honest');
-        targetX = 3;
-        setSecretX(3);
+        // Automatically picks a fresh random secret for Alice on every single run!
+        const randomX = Math.floor(Math.random() * 9) + 1;
+        const newPubY = computePublicKey(BigInt(randomX)).toString();
+        await api.registerUser(username, newPubY);
+        setAliceRealSecret(randomX);
+        setServerRegisteredPubKey(newPubY);
+        targetX = randomX;
+        setSecretX(randomX);
+        activePubKey = newPubY;
       } else if (scenarioType === 'impostor') {
         setActiveScenario('impostor');
-        // Automatically picks a random wrong secret between 1 and 10 (excluding 3)
-        const wrongKeys = [1, 2, 4, 5, 6, 7, 8, 9, 10];
+        // Automatically picks a random wrong secret between 1 and 10 (excluding Alice's real secret)
+        const wrongKeys = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(n => n !== aliceRealSecret);
         targetX = wrongKeys[Math.floor(Math.random() * wrongKeys.length)];
         setSecretX(targetX);
       } else if (scenarioType === 'tampered') {
         setActiveScenario('tampered');
-        targetX = 3;
-        setSecretX(3);
+        targetX = aliceRealSecret;
+        setSecretX(aliceRealSecret);
         shouldTamper = true;
       }
 
@@ -170,7 +200,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       const t = computeCommitment(r);
       setCommitmentT(t);
 
-      const commitRes = await api.submitCommitment('alice', '8', t.toString());
+      const commitRes = await api.submitCommitment('alice', activePubKey, t.toString());
       const sId = commitRes.session.id;
       setSessionId(sId);
 
@@ -216,7 +246,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
           <div className="flex items-center space-x-4 text-xs font-mono text-slate-300">
             <span className="px-2 py-1 rounded bg-navy-900 border border-navy-700">p = 23 (Prime)</span>
             <span className="px-2 py-1 rounded bg-navy-900 border border-navy-700">g = 2 (Generator)</span>
-            <span className="px-2 py-1 rounded bg-navy-900 border border-navy-700">Alice Public Key y = 8</span>
+            <span className="px-2 py-1 rounded bg-navy-900 border border-navy-700">Alice Public Key y = {serverRegisteredPubKey}</span>
           </div>
         </div>
       </div>
@@ -258,7 +288,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
               </span>
             </div>
             <p className="text-xs text-slate-300 leading-snug">
-              Alice proves identity using secret with fresh random nonce. Always Accepted!
+              Takes a fresh random secret & nonce every click. <strong className="text-emerald-300">Always Accepted!</strong>
             </p>
           </button>
 
@@ -282,7 +312,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
               </span>
             </div>
             <p className="text-xs text-slate-300 leading-snug">
-              Impostor uses a random wrong secret automatically. Equation will mismatch!
+              Impostor uses a random wrong secret automatically. <strong className="text-rose-300">Always Rejected!</strong>
             </p>
           </button>
 
@@ -399,14 +429,23 @@ export default function DualConsoleDashboard({ onProofComplete }) {
                     {showSecret ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={generateNewRandomSecret}
+                  className="px-2 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[10px] font-mono cursor-pointer transition flex items-center space-x-1"
+                  title="Generate a brand new random secret for Alice"
+                >
+                  <Sparkles className="w-2.5 h-2.5" />
+                  <span>Randomize</span>
+                </button>
                 <span className="text-[10px] text-slate-400">
-                  {activeScenario === 'honest' ? '(Sealed in memory)' : '(Random Impostor)'}
+                  {activeScenario === 'honest' ? '(Alice Secret Key)' : '(Random Impostor Key)'}
                 </span>
               </div>
             </div>
 
             <div className="flex items-center justify-between text-xs font-mono text-slate-400 pt-1 border-t border-navy-800">
-              <span>Public Key (y = 2^x mod 23):</span>
+              <span>Public Key (y = 2^{secretX} mod 23):</span>
               <span className="text-cyan-400 font-bold">y = {computePublicKey(BigInt(secretX)).toString()}</span>
             </div>
           </div>
@@ -475,7 +514,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
           <div className="p-3.5 rounded-xl bg-navy-950 border border-cyan-500/20 space-y-2 font-mono text-xs">
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Server Registered Key for Alice:</span>
-              <span className="text-cyan-300 font-bold">y = 8 (Fixed on Server)</span>
+              <span className="text-cyan-300 font-bold">y = {serverRegisteredPubKey} (Registered on Server)</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Received Commitment (t):</span>
@@ -504,7 +543,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
               <div className="p-2 rounded bg-navy-900 border border-navy-700">
                 <span className="text-[10px] text-slate-400 block">RHS: (t · y^e) mod p</span>
                 <span className="font-bold text-purple-400 text-sm">
-                  {verificationResult?.equation?.rhs || '(t · 8^e) mod 23'}
+                  {verificationResult?.equation?.rhs || `(t · ${serverRegisteredPubKey}^e) mod 23`}
                 </span>
               </div>
             </div>
