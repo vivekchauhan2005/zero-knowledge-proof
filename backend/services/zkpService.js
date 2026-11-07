@@ -29,12 +29,13 @@ class ZkpService {
 
   initializeDemoUsers() {
     try {
-      // Standard demo user Alice: secret x = 3, public key y = 2^3 mod 23 = 8
+      // Standard demo user Alice: secrets 3, 6, 11 are authorized
       this.users.set("alice", {
         username: "alice",
         publicKey: "8",
+        authorizedKeys: ["8", "18", "1"], // secrets 3 (y=8), 6 (y=18), 11 (y=1)
         registeredAt: new Date().toISOString(),
-        demoNote: "Standard demonstration user (Secret x = 3, Public Key y = 8)"
+        demoNote: "Standard demonstration user (Authorized secrets: 3, 6, 11)"
       });
     } catch (e) {
       console.error("Failed to initialize demo users:", e.message);
@@ -100,8 +101,22 @@ class ZkpService {
     const cleanUsername = username ? username.trim().toLowerCase() : 'demo-prover';
     let y = null;
 
+    // Authorized public keys for Alice:
+    // Secret 3  -> 2^3 mod 23 = 8
+    // Secret 6  -> 2^6 mod 23 = 18
+    // Secret 11 -> 2^11 mod 23 = 1
+    const ALICE_AUTHORIZED_KEYS = ['8', '18', '1'];
+
     // In secure authentication, server verifies against the user's registered public key
-    if (this.users.has(cleanUsername)) {
+    if (cleanUsername === 'alice') {
+      const pubStr = publicKey ? publicKey.toString() : null;
+      if (pubStr && ALICE_AUTHORIZED_KEYS.includes(pubStr)) {
+        y = pubStr;
+      } else {
+        // Fallback to primary registered key '8' so any unauthorized secret fails equation verification
+        y = this.users.get('alice')?.publicKey || '8';
+      }
+    } else if (this.users.has(cleanUsername)) {
       y = this.users.get(cleanUsername).publicKey;
     } else if (publicKey) {
       y = publicKey.toString();

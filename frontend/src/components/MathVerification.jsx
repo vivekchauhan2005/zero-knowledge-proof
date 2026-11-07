@@ -13,22 +13,21 @@ import {
 } from '../utils/schnorrClient';
 
 export default function MathVerification() {
-  // Interactive test inputs
+  // Interactive test inputs (range 1 to 11)
   const [xVal, setXVal] = useState('3');
   const [rVal, setRVal] = useState('5');
   const [eVal, setEVal] = useState('4');
   const [isTampered, setIsTampered] = useState(false);
 
-  // Alice's registered key on the server: y = 2^3 mod 23 = 8
-  const serverRegisteredY = 8n;
-  const aliceRealSecret = 3n;
+  // Authorized secrets: 3, 6, 11
+  const AUTHORIZED_SECRETS = [3n, 6n, 11n];
 
   const p = EDUCATIONAL_PARAMS.p;
   const q = EDUCATIONAL_PARAMS.q;
   const g = EDUCATIONAL_PARAMS.g;
 
-  // Safe parsing
-  const x = BigInt(Math.max(1, Math.min(10, parseInt(xVal) || 1)));
+  // Safe parsing (1 to 11)
+  const x = BigInt(Math.max(1, Math.min(11, parseInt(xVal) || 1)));
   const r = BigInt(Math.max(1, Math.min(10, parseInt(rVal) || 1)));
   const e = BigInt(Math.max(1, Math.min(10, parseInt(eVal) || 1)));
 
@@ -43,9 +42,15 @@ export default function MathVerification() {
   }
   const z = calculatedZ;
 
+  // Verifier public key used:
+  // If x is an authorized secret (3, 6, 11), server verifies against that authorized key
+  // If x is an unauthorized secret, server verifies against primary key 8 (causing equation failure)
+  const isAuthorized = AUTHORIZED_SECRETS.includes(x);
+  const verifierPubKey = isAuthorized ? proverDerivedY : 8n;
+
   // Verifier calculates LHS = g^z mod p and RHS = (t * y_server^e) mod p
   const lhs = modPow(g, z, p);
-  const ye = modPow(serverRegisteredY, e, p);
+  const ye = modPow(verifierPubKey, e, p);
   const rhs = mod(t * ye, p);
   const isMatch = (lhs === rhs);
 
@@ -55,22 +60,24 @@ export default function MathVerification() {
     setIsTampered(tamper);
   };
 
-  const handleRandomReject = () => {
-    const wrongNumbers = [1, 2, 4, 5, 6, 7, 8, 9, 10];
-    const pick = wrongNumbers[Math.floor(Math.random() * wrongNumbers.length)];
+  const handleRandomSecret = () => {
+    const pick = Math.floor(Math.random() * 11) + 1;
     handleUseSecret(pick, false);
   };
 
-  // Precompute matrix for all numbers 1 to 10 with current r and e
-  const numbersMatrix = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+  // Precompute matrix for all numbers 1 to 11 with current r and e
+  const numbersMatrix = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((num) => {
     const testX = BigInt(num);
+    const testIsAuth = AUTHORIZED_SECRETS.includes(testX);
+    const testProverY = computePublicKey(testX, p, g);
+    const testServerY = testIsAuth ? testProverY : 8n;
     const testZ = computeResponse(r, e, testX, q);
     const testLhs = modPow(g, testZ, p);
-    const testRhs = rhs;
+    const testRhs = mod(t * modPow(testServerY, e, p), p);
     const testMatches = (testLhs === testRhs);
     return {
       num,
-      proverY: computePublicKey(testX, p, g).toString(),
+      proverY: testProverY.toString(),
       z: testZ.toString(),
       lhs: testLhs.toString(),
       rhs: testRhs.toString(),
@@ -88,117 +95,108 @@ export default function MathVerification() {
             <span>Mathematical Proof & Live Dynamic Verification Engine</span>
           </h2>
           <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Evaluate why Secret x = 3 is mathematically ACCEPTED while other numbers are REJECTED
+            Full dynamic algebraic evaluation of the Schnorr verification equation modulo p=23
           </p>
         </div>
         <div className="flex items-center space-x-2">
           <span className="px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-mono">
             p = 23, q = 11, g = 2
           </span>
-          <span className="px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-mono">
-            Server Public Key y = 8
-          </span>
         </div>
       </div>
 
-      {/* Quick Test Preset Buttons */}
+      {/* Quick Test Preset Buttons (No pre-verdict spoilers) */}
       <div className="p-4 rounded-2xl bg-navy-900/90 border border-navy-700 shadow-md space-y-3">
         <span className="text-xs font-bold text-white uppercase tracking-wider block">
-          Quick Demonstration Scenarios (Click to test):
+          Select or Test Any Scalar Parameter:
         </span>
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-          {/* Button 1: Accept */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+          {/* Secret 3 */}
           <button
             type="button"
             onClick={() => handleUseSecret(3, false)}
             className={`p-3 rounded-xl border text-left transition cursor-pointer ${
               x.toString() === '3' && !isTampered
-                ? 'bg-emerald-950/70 border-emerald-500 shadow-md shadow-emerald-500/20'
-                : 'bg-navy-950 border-navy-700 hover:border-emerald-500/40'
+                ? 'bg-blue-950/70 border-blue-500 shadow-md'
+                : 'bg-navy-950 border-navy-700 hover:border-blue-500/40'
             }`}
           >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold text-emerald-400 flex items-center space-x-1">
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>1. Test ACCEPT (3)</span>
-              </span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
-                PASS
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-300">
-              Secret <strong className="text-emerald-300">x = 3</strong> matches server key <strong className="text-emerald-300">y = 8</strong>.
-            </p>
+            <span className="text-xs font-bold text-white block mb-0.5">Secret x = 3</span>
+            <span className="text-[11px] text-slate-400 block font-mono">y = 8</span>
           </button>
 
-          {/* Button 2: Reject 7 */}
+          {/* Secret 6 */}
+          <button
+            type="button"
+            onClick={() => handleUseSecret(6, false)}
+            className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+              x.toString() === '6' && !isTampered
+                ? 'bg-blue-950/70 border-blue-500 shadow-md'
+                : 'bg-navy-950 border-navy-700 hover:border-blue-500/40'
+            }`}
+          >
+            <span className="text-xs font-bold text-white block mb-0.5">Secret x = 6</span>
+            <span className="text-[11px] text-slate-400 block font-mono">y = 18</span>
+          </button>
+
+          {/* Secret 11 */}
+          <button
+            type="button"
+            onClick={() => handleUseSecret(11, false)}
+            className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+              x.toString() === '11' && !isTampered
+                ? 'bg-blue-950/70 border-blue-500 shadow-md'
+                : 'bg-navy-950 border-navy-700 hover:border-blue-500/40'
+            }`}
+          >
+            <span className="text-xs font-bold text-white block mb-0.5">Secret x = 11</span>
+            <span className="text-[11px] text-slate-400 block font-mono">y = 1</span>
+          </button>
+
+          {/* Secret 7 */}
           <button
             type="button"
             onClick={() => handleUseSecret(7, false)}
             className={`p-3 rounded-xl border text-left transition cursor-pointer ${
               x.toString() === '7' && !isTampered
-                ? 'bg-rose-950/70 border-rose-500 shadow-md shadow-rose-500/20'
-                : 'bg-navy-950 border-navy-700 hover:border-rose-500/40'
+                ? 'bg-blue-950/70 border-blue-500 shadow-md'
+                : 'bg-navy-950 border-navy-700 hover:border-blue-500/40'
             }`}
           >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold text-rose-400 flex items-center space-x-1">
-                <UserX className="w-3.5 h-3.5" />
-                <span>2. Test REJECT (7)</span>
-              </span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono font-bold">
-                FAIL
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-300">
-              Secret <strong className="text-rose-300">x = 7</strong> generates wrong key <strong className="text-rose-300">y = 13 ≠ 8</strong>.
-            </p>
+            <span className="text-xs font-bold text-white block mb-0.5">Secret x = 7</span>
+            <span className="text-[11px] text-slate-400 block font-mono">y = 13</span>
           </button>
 
-          {/* Button 3: Random Reject */}
+          {/* Random Secret */}
           <button
             type="button"
-            onClick={handleRandomReject}
+            onClick={handleRandomSecret}
             className="p-3 rounded-xl border bg-navy-950 border-navy-700 hover:border-indigo-500/40 text-left transition cursor-pointer"
           >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold text-indigo-400 flex items-center space-x-1">
-                <Shuffle className="w-3.5 h-3.5" />
-                <span>3. Random REJECT</span>
-              </span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono font-bold">
-                FAIL
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-300">
-              Picks random wrong secret from <strong className="text-indigo-300">[1, 2, 4..10]</strong>.
-            </p>
+            <span className="text-xs font-bold text-indigo-300 block mb-0.5 flex items-center space-x-1">
+              <Shuffle className="w-3.5 h-3.5" />
+              <span>Random [1..11]</span>
+            </span>
+            <span className="text-[11px] text-slate-400 block font-mono">Pick any number</span>
           </button>
 
-          {/* Button 4: Tamper z */}
+          {/* Tamper */}
           <button
             type="button"
             onClick={() => setIsTampered(!isTampered)}
             className={`p-3 rounded-xl border text-left transition cursor-pointer ${
               isTampered
-                ? 'bg-amber-950/70 border-amber-500 shadow-md shadow-amber-500/20'
+                ? 'bg-amber-950/70 border-amber-500 shadow-md'
                 : 'bg-navy-950 border-navy-700 hover:border-amber-500/40'
             }`}
           >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold text-amber-400 flex items-center space-x-1">
-                <Flame className="w-3.5 h-3.5" />
-                <span>4. Tamper Response z</span>
-              </span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
-                isTampered ? 'bg-amber-500/30 text-amber-200' : 'bg-navy-800 text-slate-400'
-              }`}>
-                {isTampered ? 'ACTIVE (+1)' : 'OFF'}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-300">
-              Alters response <strong className="text-amber-300">z by +1</strong> in transit.
-            </p>
+            <span className="text-xs font-bold text-amber-400 block mb-0.5 flex items-center space-x-1">
+              <Flame className="w-3.5 h-3.5" />
+              <span>Tamper (z + 1)</span>
+            </span>
+            <span className="text-[11px] text-slate-400 block font-mono">
+              {isTampered ? 'Active' : 'Off'}
+            </span>
           </button>
         </div>
       </div>
@@ -208,41 +206,28 @@ export default function MathVerification() {
         <h3 className="text-sm font-bold text-white mb-3 flex items-center justify-between">
           <span className="flex items-center space-x-2">
             <span>Interactive Parameter Playground</span>
-            <span className="text-xs text-slate-400 font-normal">(Type any number from 1 to 10)</span>
-          </span>
-          <span className="text-xs font-mono text-cyan-400">
-            Registered Public Key on Verifier Server: <strong>y = 8</strong>
+            <span className="text-xs text-slate-400 font-normal">(Type any number from 1 to 11)</span>
           </span>
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           {/* Secret Scalar x */}
-          <div className={`p-3.5 rounded-xl border transition ${
-            x.toString() === '3' 
-              ? 'bg-emerald-950/30 border-emerald-500/40' 
-              : 'bg-rose-950/30 border-rose-500/40'
-          }`}>
+          <div className="p-3.5 rounded-xl bg-navy-950 border border-navy-700">
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-semibold text-slate-200">
-                Secret Scalar x ∈ [1, 10]:
+                Secret Scalar x ∈ [1, 11]:
               </label>
-              <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
-                x.toString() === '3' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
-              }`}>
-                {x.toString() === '3' ? '✓ Real Key (ACCEPT)' : '✗ Wrong Key (REJECT)'}
-              </span>
             </div>
             <input
               type="number"
               min="1"
-              max="10"
+              max="11"
               value={xVal}
               onChange={(e) => setXVal(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-navy-900 border border-navy-600 text-white font-mono text-sm focus:outline-none focus:border-cyan-400"
             />
             <span className="text-[11px] font-mono text-slate-400 mt-1 block">
-              Prover's key: 2^{x.toString()} mod 23 = <strong className={x.toString() === '3' ? 'text-emerald-400' : 'text-rose-400'}>{proverDerivedY.toString()}</strong>
-              {x.toString() === '3' ? ' (Matches y=8!)' : ' (Mismatch with y=8!)'}
+              Prover's key: 2^{x.toString()} mod 23 = <strong className="text-cyan-400">{proverDerivedY.toString()}</strong>
             </span>
           </div>
 
@@ -292,10 +277,10 @@ export default function MathVerification() {
               Schnorr Identification Verification Equation Checked by Server
             </span>
             <div className="text-lg sm:text-2xl font-mono font-extrabold text-white">
-              g^z mod p <span className="text-indigo-400">≡</span> (t · y_server^e) mod p
+              g^z mod p <span className="text-indigo-400">≡</span> (t · y^e) mod p
             </div>
             <div className="text-xs font-mono text-slate-400 mt-1">
-              where g = 2, p = 23, y_server = 8 (Alice's registered key)
+              Evaluated with g = 2, p = 23, q = 11
             </div>
           </div>
 
@@ -317,10 +302,10 @@ export default function MathVerification() {
             {/* RHS */}
             <div className="p-4 rounded-xl bg-navy-950/80 border border-navy-700 space-y-2">
               <span className="text-xs font-mono text-purple-400 font-bold block">
-                RIGHT-HAND SIDE (RHS): (t · y_server^e) mod p
+                RIGHT-HAND SIDE (RHS): (t · y^e) mod p
               </span>
               <div className="text-xs font-mono text-slate-300 space-y-1">
-                <div>= ({t.toString()} · 8^{e.toString()}) mod 23</div>
+                <div>= ({t.toString()} · {verifierPubKey.toString()}^{e.toString()}) mod 23</div>
                 <div>= ({t.toString()} · {ye.toString()}) mod 23</div>
                 <div className="text-lg font-bold text-purple-400 pt-1">
                   RHS = {rhs.toString()}
@@ -343,34 +328,26 @@ export default function MathVerification() {
             )}
             <div className="text-xs text-slate-400 mt-2">
               {isMatch
-                ? 'Reason: Prover used the correct secret x = 3 matching Alice’s registered key y = 8.'
+                ? `Possession of valid secret x = ${x.toString()} mathematically authenticated.`
                 : isTampered
-                  ? 'Reason: Response z was altered (+1) in transit, breaking discrete log equivalence.'
-                  : `Reason: Prover entered wrong secret x = ${x.toString()}, generating mismatching response z.`}
+                  ? 'Response z was altered (+1) in transit, breaking discrete log equivalence.'
+                  : `Secret x = ${x.toString()} does not satisfy the discrete log relationship on the server.`}
             </div>
           </div>
         </div>
       </div>
 
-      {/* ================= COMPREHENSIVE ACCEPT / REJECT MATRIX FOR ALL NUMBERS 1 TO 10 ================= */}
+      {/* Scalar Verification Results Table (x = 1 to 11) */}
       <div className="p-6 rounded-2xl bg-navy-900 border border-navy-700 shadow-md">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-3">
           <div>
             <h3 className="text-sm font-bold text-white flex items-center space-x-2">
               <ShieldCheck className="w-4 h-4 text-cyan-400" />
-              <span>Full Accept vs. Reject Matrix for All Scalars (x = 1 to 10)</span>
+              <span>Scalar Evaluation Results for Subgroup Z_11* (x = 1 to 11)</span>
             </h3>
             <p className="text-xs text-slate-400 font-mono mt-0.5">
-              Tested against Alice's registered public key y = 8 (Nonce r = {r.toString()}, Challenge e = {e.toString()})
+              Evaluated with Nonce r = {r.toString()}, Challenge e = {e.toString()}
             </p>
-          </div>
-          <div className="flex items-center space-x-2 text-xs font-mono">
-            <span className="px-2 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              1 Accepted (x = 3)
-            </span>
-            <span className="px-2 py-1 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
-              9 Rejected (x ≠ 3)
-            </span>
           </div>
         </div>
 
@@ -382,7 +359,7 @@ export default function MathVerification() {
                 <th className="py-2.5 px-3">Prover Public Key (y)</th>
                 <th className="py-2.5 px-3">Response (z)</th>
                 <th className="py-2.5 px-3">LHS (g^z)</th>
-                <th className="py-2.5 px-3">RHS (t·y_srv^e)</th>
+                <th className="py-2.5 px-3">RHS (t·y^e)</th>
                 <th className="py-2.5 px-3 text-center">Verdict</th>
                 <th className="py-2.5 px-3 text-right">Action</th>
               </tr>
@@ -444,7 +421,7 @@ export default function MathVerification() {
                           : 'bg-navy-800 hover:bg-navy-700 text-slate-300 border border-navy-600'
                       }`}
                     >
-                      {item.num === Number(x) ? 'Loaded' : 'Test This'}
+                      {item.num === Number(x) ? 'Loaded' : 'Evaluate'}
                     </button>
                   </td>
                 </tr>
