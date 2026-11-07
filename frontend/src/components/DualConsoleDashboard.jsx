@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Key, Lock, Send, RefreshCw, CheckCircle2, XCircle, ShieldAlert, 
-  ArrowRight, Terminal, Shield, Eye, EyeOff, Sparkles, UserCheck, UserX, Flame
+  ArrowRight, Terminal, Shield, Eye, EyeOff, Sparkles, UserCheck, UserX, Flame, Dices
 } from 'lucide-react';
 import { 
+  deriveScalarFromSecret, 
   computePublicKey, 
+  generateRandomNonce, 
   computeCommitment, 
   computeResponse, 
   EDUCATIONAL_PARAMS 
@@ -12,48 +14,57 @@ import {
 import { api } from '../services/api';
 
 export default function DualConsoleDashboard({ onProofComplete }) {
-  // Current active scenario: 'honest' | 'impostor' | 'tampered'
-  const [activeScenario, setActiveScenario] = useState('honest');
-
-  // Parameters: p = 23, q = 11, g = 2, Alice's y = 8 (for x = 3)
+  // Registered User Account
   const [username, setUsername] = useState('alice');
-  const [secretX, setSecretX] = useState(3); // Alice's real secret is 3
-  const [showSecret, setShowSecret] = useState(false);
+  const [password, setPassword] = useState('aliceSecretPass2026');
+  const [showPassword, setShowPassword] = useState(false);
+  
+  // Alice's registered public key and private scalar (derived automatically from password)
+  const [registeredData, setRegisteredData] = useState({
+    scalar: 3n,
+    publicKey: 8n
+  });
 
-  // Protocol state
-  const [nonceR, setNonceR] = useState(5);
+  // Protocol state (Generated dynamically & randomly)
+  const [nonceR, setNonceR] = useState(null);
   const [commitmentT, setCommitmentT] = useState(null);
   const [challengeE, setChallengeE] = useState(null);
   const [responseZ, setResponseZ] = useState(null);
   const [sessionId, setSessionId] = useState(null);
+  const [attemptType, setAttemptType] = useState('honest'); // 'honest' | 'impostor' | 'tampered'
   
-  // Execution step: 0 = Ready, 1 = Challenged (Ready to submit z), 2 = Verified
+  // Execution step: 0 = Ready, 1 = Challenged (Ready to submit), 2 = Verified
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [verificationResult, setVerificationResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  // 1. SCENARIO A: HONEST PROVER (WILL ACCEPT)
-  const setupHonestScenario = () => {
-    setActiveScenario('honest');
-    setUsername('alice');
-    setSecretX(3); // Real secret x = 3
-    handleReset();
-  };
+  // Derive Alice's secret key and register her public key automatically on startup/password change
+  useEffect(() => {
+    async function initUser() {
+      try {
+        const derived = await deriveScalarFromSecret(password, EDUCATIONAL_PARAMS.q);
+        const pubKey = computePublicKey(derived.scalar);
+        setRegisteredData({
+          scalar: derived.scalar,
+          publicKey: pubKey
+        });
 
-  // 2. SCENARIO B: IMPOSTOR WITH WRONG SECRET (WILL REJECT)
-  const setupImpostorScenario = () => {
-    setActiveScenario('impostor');
-    setUsername('alice');
-    setSecretX(7); // Impostor wrong secret x = 7
-    handleReset();
-  };
+        // Register user's public key with server backend
+        await api.registerUser(username, pubKey.toString());
+      } catch (err) {
+        console.error('Failed to register user:', err);
+      }
+    }
+    initUser();
+  }, [password, username]);
 
-  // 3. SCENARIO C: TAMPERED RESPONSE IN TRANSIT (WILL REJECT)
-  const setupTamperedScenario = () => {
-    setActiveScenario('tampered');
-    setUsername('alice');
-    setSecretX(3);
+  // Generate a random password for Alice
+  const randomizePassword = () => {
+    const randomWords = ['CryptoMaster', 'ZeroTrust', 'QuantumKey', 'CyberShield', 'DeepProof', 'AlphaSecret'];
+    const randomSuffix = Math.floor(100 + Math.random() * 900);
+    const newPass = `${randomWords[Math.floor(Math.random() * randomWords.length)]}${randomSuffix}`;
+    setPassword(newPass);
     handleReset();
   };
 
@@ -68,54 +79,91 @@ export default function DualConsoleDashboard({ onProofComplete }) {
     setStep(0);
   };
 
-  // STEP 1: Generate Commitment & Get Challenge
-  const handleStep1 = async () => {
+  // ========================================================
+  // 🟢 1. RUN RANDOM VALID LOGIN (HONEST ALICE)
+  // Completely automatic with fresh random numbers every click!
+  // ========================================================
+  const runRandomValidLogin = async () => {
     try {
       setLoading(true);
       setErrorMsg(null);
       setVerificationResult(null);
+      setAttemptType('honest');
 
-      // Random nonce r or fixed r=5 for clean presentation
-      const r = BigInt(nonceR || 5);
+      // 1. Generate fresh random nonce r in [1, q-1]
+      const r = generateRandomNonce(EDUCATIONAL_PARAMS.q);
       const t = computeCommitment(r);
+      setNonceR(r);
       setCommitmentT(t);
 
-      // Prover sends commitment t to server for user 'alice' (Alice's registered key y=8)
-      const commitRes = await api.submitCommitment(username, '8', t.toString());
+      // 2. Submit commitment t to backend to start session
+      const commitRes = await api.submitCommitment(username, registeredData.publicKey.toString(), t.toString());
       const sId = commitRes.session.id;
       setSessionId(sId);
 
-      // Server generates challenge e
+      // 3. Backend issues a fresh random challenge e
       const chalRes = await api.requestChallenge(sId);
       const e = BigInt(chalRes.challenge);
       setChallengeE(e);
 
-      // Prover calculates response z = (r + e * x) mod q
-      const xBig = BigInt(secretX);
-      let calculatedZ = computeResponse(r, e, xBig, EDUCATIONAL_PARAMS.q);
+      // 4. Prover calculates honest response: z = (r + e * x) mod q
+      const z = computeResponse(r, e, registeredData.scalar, EDUCATIONAL_PARAMS.q);
+      setResponseZ(z);
 
-      // If Tampered Scenario was selected, alter z by +1
-      if (activeScenario === 'tampered') {
-        calculatedZ = (calculatedZ + 1n) % EDUCATIONAL_PARAMS.q;
-      }
+      // 5. Submit response z to backend for mathematical verification
+      const verifyRes = await api.submitProof(sId, z.toString());
+      setVerificationResult(verifyRes);
+      setStep(2);
 
-      setResponseZ(calculatedZ);
-      setStep(1); // Ready for Step 2
+      if (onProofComplete) onProofComplete();
     } catch (err) {
-      setErrorMsg(err.message || 'Step 1 failed');
+      setErrorMsg(err.message || 'Validation failed');
     } finally {
       setLoading(false);
     }
   };
 
-  // STEP 2: Submit Response & Verify
-  const handleStep2 = async () => {
+  // ========================================================
+  // 🔴 2. RUN RANDOM INVALID LOGIN (WRONG PASSWORD / IMPOSTOR)
+  // Generates a random wrong secret, attempts login -> REJECTED!
+  // ========================================================
+  const runRandomInvalidLogin = async () => {
     try {
       setLoading(true);
       setErrorMsg(null);
+      setVerificationResult(null);
+      setAttemptType('impostor');
 
-      const result = await api.submitProof(sessionId, responseZ.toString());
-      setVerificationResult(result);
+      // Impostor picks a random nonce
+      const r = generateRandomNonce(EDUCATIONAL_PARAMS.q);
+      const t = computeCommitment(r);
+      setNonceR(r);
+      setCommitmentT(t);
+
+      // Impostor requests session for 'alice'
+      const commitRes = await api.submitCommitment(username, registeredData.publicKey.toString(), t.toString());
+      const sId = commitRes.session.id;
+      setSessionId(sId);
+
+      // Backend issues challenge e
+      const chalRes = await api.requestChallenge(sId);
+      const e = BigInt(chalRes.challenge);
+      setChallengeE(e);
+
+      // Impostor DOES NOT know Alice's secret.
+      // Impostor uses a random wrong scalar x_fake != x
+      let fakeScalar = generateRandomNonce(EDUCATIONAL_PARAMS.q);
+      if (fakeScalar === registeredData.scalar) {
+        fakeScalar = (fakeScalar % (EDUCATIONAL_PARAMS.q - 2n)) + 1n;
+      }
+
+      // Impostor computes response using fake secret
+      const fakeZ = computeResponse(r, e, fakeScalar, EDUCATIONAL_PARAMS.q);
+      setResponseZ(fakeZ);
+
+      // Submit fake response to backend -> Server will reject because LHS != RHS!
+      const verifyRes = await api.submitProof(sId, fakeZ.toString());
+      setVerificationResult(verifyRes);
       setStep(2);
 
       if (onProofComplete) onProofComplete();
@@ -126,37 +174,23 @@ export default function DualConsoleDashboard({ onProofComplete }) {
     }
   };
 
-  // ONE-CLICK QUICK RUN: Runs Step 1 and Step 2 automatically
-  const handleOneClickTest = async (scenarioType) => {
+  // ========================================================
+  // ⚠️ 3. RUN RANDOM TAMPERED ATTACK (MAN-IN-THE-MIDDLE)
+  // Honest proof is altered by random offset in transit -> REJECTED!
+  // ========================================================
+  const runRandomTamperedAttack = async () => {
     try {
       setLoading(true);
       setErrorMsg(null);
       setVerificationResult(null);
+      setAttemptType('tampered');
 
-      let targetX = 3;
-      let shouldTamper = false;
-
-      if (scenarioType === 'honest') {
-        setActiveScenario('honest');
-        targetX = 3;
-        setSecretX(3);
-      } else if (scenarioType === 'impostor') {
-        setActiveScenario('impostor');
-        targetX = 7;
-        setSecretX(7);
-      } else if (scenarioType === 'tampered') {
-        setActiveScenario('tampered');
-        targetX = 3;
-        setSecretX(3);
-        shouldTamper = true;
-      }
-
-      // Step 1: Commit
-      const r = BigInt(nonceR || 5);
+      const r = generateRandomNonce(EDUCATIONAL_PARAMS.q);
       const t = computeCommitment(r);
+      setNonceR(r);
       setCommitmentT(t);
 
-      const commitRes = await api.submitCommitment('alice', '8', t.toString());
+      const commitRes = await api.submitCommitment(username, registeredData.publicKey.toString(), t.toString());
       const sId = commitRes.session.id;
       setSessionId(sId);
 
@@ -164,20 +198,22 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       const e = BigInt(chalRes.challenge);
       setChallengeE(e);
 
-      let calcZ = computeResponse(r, e, BigInt(targetX), EDUCATIONAL_PARAMS.q);
-      if (shouldTamper) {
-        calcZ = (calcZ + 1n) % EDUCATIONAL_PARAMS.q;
-      }
-      setResponseZ(calcZ);
+      // Honest z
+      const honestZ = computeResponse(r, e, registeredData.scalar, EDUCATIONAL_PARAMS.q);
+      
+      // Hacker tampers with z by adding a random offset (1 to 5)
+      const randomOffset = BigInt(Math.floor(1 + Math.random() * 4));
+      const tamperedZ = (honestZ + randomOffset) % EDUCATIONAL_PARAMS.q;
+      setResponseZ(tamperedZ);
 
-      // Step 2: Verify
-      const result = await api.submitProof(sId, calcZ.toString());
-      setVerificationResult(result);
+      // Submit tampered z -> Server detects altered math and REJECTS!
+      const verifyRes = await api.submitProof(sId, tamperedZ.toString());
+      setVerificationResult(verifyRes);
       setStep(2);
 
       if (onProofComplete) onProofComplete();
     } catch (err) {
-      setErrorMsg(err.message || 'Execution failed');
+      setErrorMsg(err.message || 'Verification failed');
     } finally {
       setLoading(false);
     }
@@ -185,51 +221,73 @@ export default function DualConsoleDashboard({ onProofComplete }) {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* ================= SIMPLE 3-STEP EXPLAINER BANNER ================= */}
-      <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-950/40 via-indigo-950/30 to-purple-950/40 border border-blue-500/30">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-lg">
-              🔐
+      {/* ================= USER ACCOUNT SETTINGS (AUTOMATIC) ================= */}
+      <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-950/30 via-indigo-950/20 to-purple-950/30 border border-blue-500/20 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold">
+            👤
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm font-bold text-white">Registered Account:</span>
+              <span className="font-mono text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold">
+                @{username}
+              </span>
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-white">How Zero-Knowledge Authentication Works</h2>
-              <p className="text-xs text-slate-300">
-                Alice proves she knows her secret without sending her secret. Server verifies using pure mathematics.
-              </p>
+            <div className="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
+              <span>Password:</span>
+              <span className="font-mono text-slate-200">
+                {showPassword ? password : '••••••••••••'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="text-slate-400 hover:text-white"
+              >
+                {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
             </div>
           </div>
-          <div className="flex items-center space-x-4 text-xs font-mono text-slate-300">
-            <span className="px-2 py-1 rounded bg-navy-900 border border-navy-700">p = 23 (Prime)</span>
-            <span className="px-2 py-1 rounded bg-navy-900 border border-navy-700">g = 2 (Generator)</span>
-            <span className="px-2 py-1 rounded bg-navy-900 border border-navy-700">Alice Public Key y = 8</span>
-          </div>
+        </div>
+
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={randomizePassword}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-navy-800 hover:bg-navy-700 text-slate-300 border border-navy-600 text-xs font-medium transition cursor-pointer"
+            title="Generate a completely new random password"
+          >
+            <Dices className="w-3.5 h-3.5 text-amber-400" />
+            <span>Generate Random Password</span>
+          </button>
+          <button
+            onClick={handleReset}
+            className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-navy-800 hover:bg-navy-700 text-slate-300 border border-navy-600 text-xs font-medium transition cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Clear</span>
+          </button>
         </div>
       </div>
 
-      {/* ================= ONE-CLICK DEMO BUTTONS ================= */}
+      {/* ================= ONE-CLICK AUTOMATIC TESTING BUTTONS ================= */}
       <div className="p-5 rounded-2xl bg-navy-900 border border-navy-700 shadow-xl space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center space-x-2">
             <Sparkles className="w-4 h-4 text-amber-400" />
-            <span>Click Any Button Below To Run The Live Test:</span>
+            <span>Click Any Button Below To Test Live (No Manual Entry Needed):</span>
           </span>
-          <button
-            onClick={handleReset}
-            className="text-xs font-mono px-3 py-1 rounded-lg bg-navy-800 hover:bg-navy-700 text-slate-300 border border-navy-600 transition flex items-center space-x-1"
-          >
-            <RefreshCw className="w-3 h-3" />
-            <span>Reset</span>
-          </button>
+          <span className="text-[11px] font-mono text-slate-400">
+            Numbers are generated randomly on each click
+          </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {/* 🟢 BUTTON 1: DEMONSTRATE ACCEPT */}
+          {/* 🟢 BUTTON 1: RUN VALID LOGIN */}
           <button
-            onClick={() => handleOneClickTest('honest')}
+            onClick={runRandomValidLogin}
             disabled={loading}
             className={`p-4 rounded-xl border text-left transition cursor-pointer ${
-              activeScenario === 'honest' && verificationResult?.isValid
+              attemptType === 'honest' && verificationResult?.isValid
                 ? 'bg-emerald-950/60 border-emerald-500 shadow-lg shadow-emerald-500/20'
                 : 'bg-navy-950/80 border-navy-700 hover:border-emerald-500/50'
             }`}
@@ -237,23 +295,23 @@ export default function DualConsoleDashboard({ onProofComplete }) {
             <div className="flex items-center justify-between mb-1.5">
               <span className="flex items-center space-x-1.5 text-emerald-400 font-bold text-xs">
                 <UserCheck className="w-4 h-4" />
-                <span>1. Test ACCEPT (Honest Alice)</span>
+                <span>1. Test VALID Login</span>
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
-                WILL PASS
+                WILL ACCEPT
               </span>
             </div>
             <p className="text-xs text-slate-300 leading-snug">
-              Alice uses correct secret <strong className="text-emerald-300">x = 3</strong>. LHS will equal RHS!
+              Alice uses her real password. Generates fresh random nonce & challenge $\rightarrow$ <strong>ACCEPTED!</strong>
             </p>
           </button>
 
-          {/* 🔴 BUTTON 2: DEMONSTRATE REJECT (WRONG SECRET) */}
+          {/* 🔴 BUTTON 2: RUN INVALID LOGIN */}
           <button
-            onClick={() => handleOneClickTest('impostor')}
+            onClick={runRandomInvalidLogin}
             disabled={loading}
             className={`p-4 rounded-xl border text-left transition cursor-pointer ${
-              activeScenario === 'impostor' && verificationResult && !verificationResult.isValid
+              attemptType === 'impostor' && verificationResult && !verificationResult.isValid
                 ? 'bg-rose-950/60 border-rose-500 shadow-lg shadow-rose-500/20'
                 : 'bg-navy-950/80 border-navy-700 hover:border-rose-500/50'
             }`}
@@ -261,23 +319,23 @@ export default function DualConsoleDashboard({ onProofComplete }) {
             <div className="flex items-center justify-between mb-1.5">
               <span className="flex items-center space-x-1.5 text-rose-400 font-bold text-xs">
                 <UserX className="w-4 h-4" />
-                <span>2. Test REJECT (Wrong Secret)</span>
+                <span>2. Test WRONG Password</span>
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono font-bold">
-                WILL FAIL
+                WILL REJECT
               </span>
             </div>
             <p className="text-xs text-slate-300 leading-snug">
-              Impostor enters wrong secret <strong className="text-rose-300">x = 7</strong>. Equation will mismatch!
+              Impostor attempts login with a random wrong password $\rightarrow$ <strong>REJECTED!</strong>
             </p>
           </button>
 
-          {/* ⚠️ BUTTON 3: DEMONSTRATE REJECT (TAMPERED) */}
+          {/* ⚠️ BUTTON 3: RUN TAMPERED ATTACK */}
           <button
-            onClick={() => handleOneClickTest('tampered')}
+            onClick={runRandomTamperedAttack}
             disabled={loading}
             className={`p-4 rounded-xl border text-left transition cursor-pointer ${
-              activeScenario === 'tampered' && verificationResult && !verificationResult.isValid
+              attemptType === 'tampered' && verificationResult && !verificationResult.isValid
                 ? 'bg-amber-950/60 border-amber-500 shadow-lg shadow-amber-500/20'
                 : 'bg-navy-950/80 border-navy-700 hover:border-amber-500/50'
             }`}
@@ -285,20 +343,20 @@ export default function DualConsoleDashboard({ onProofComplete }) {
             <div className="flex items-center justify-between mb-1.5">
               <span className="flex items-center space-x-1.5 text-amber-400 font-bold text-xs">
                 <Flame className="w-4 h-4" />
-                <span>3. Test REJECT (Tampered z)</span>
+                <span>3. Test TAMPERED Data</span>
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
-                WILL FAIL
+                WILL REJECT
               </span>
             </div>
             <p className="text-xs text-slate-300 leading-snug">
-              Hacker alters response <strong className="text-amber-300">z by +1</strong> in transit. Rejected!
+              A hacker in transit modifies the answer packet $\rightarrow$ <strong>REJECTED!</strong>
             </p>
           </button>
         </div>
       </div>
 
-      {/* ================= VERIFICATION RESULT BANNER (BIG & CLEAR) ================= */}
+      {/* ================= BIG VERIFICATION RESULT BANNER ================= */}
       {verificationResult && (
         <div className={`p-6 rounded-2xl border transition-all duration-300 ${
           verificationResult.isValid
@@ -318,15 +376,15 @@ export default function DualConsoleDashboard({ onProofComplete }) {
                 </h3>
                 <p className={`text-sm mt-1 font-medium ${verificationResult.isValid ? 'text-emerald-300' : 'text-rose-300'}`}>
                   {verificationResult.isValid
-                    ? 'Both sides of the equation match exactly! Alice proved she knows the secret without revealing it.'
-                    : 'Equation mismatch! The user entered an invalid secret or the response was tampered with.'}
+                    ? 'The mathematical equation balanced perfectly! Alice proved she holds the password without revealing it.'
+                    : 'Equation mismatch! The entered secret is wrong or the response packet was altered in transit.'}
                 </p>
               </div>
             </div>
 
-            {/* Live Math Box */}
-            <div className="p-4 rounded-xl bg-navy-950/80 border border-navy-700 text-center font-mono text-xs space-y-1 min-w-[240px]">
-              <span className="text-slate-400 block uppercase font-bold text-[10px]">Mathematical Verification:</span>
+            {/* Live Verification Math Box */}
+            <div className="p-4 rounded-xl bg-navy-950/80 border border-navy-700 text-center font-mono text-xs space-y-1 min-w-[250px]">
+              <span className="text-slate-400 block uppercase font-bold text-[10px]">Server Equation Check:</span>
               <div className="text-base font-extrabold text-white">
                 <span className={verificationResult.isValid ? 'text-emerald-400' : 'text-rose-400'}>
                   LHS = {verificationResult.equation?.lhs}
@@ -337,14 +395,14 @@ export default function DualConsoleDashboard({ onProofComplete }) {
                 </span>
               </div>
               <span className="text-[11px] text-slate-400 block pt-1">
-                Formula: g^z mod p ≡ (t · y^e) mod p
+                g^z mod p ≡ (t · y^e) mod p
               </span>
             </div>
           </div>
         </div>
       )}
 
-      {/* ================= DUAL SPLIT CONSOLE (PROVER VS VERIFIER) ================= */}
+      {/* ================= DUAL CONSOLE DISPLAY ================= */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* ================= LEFT CONSOLE: ALICE (PROVER) ================= */}
         <div className="rounded-2xl bg-[#0c1224] border border-purple-500/30 p-5 shadow-lg space-y-4">
@@ -354,80 +412,36 @@ export default function DualConsoleDashboard({ onProofComplete }) {
                 A
               </div>
               <div>
-                <h4 className="text-xs font-bold text-white">Prover Vault (Alice / Client Browser)</h4>
-                <p className="text-[10px] text-purple-400 font-mono">Secret Never Leaves This Computer</p>
+                <h4 className="text-xs font-bold text-white">Prover Vault (Client Laptop / Phone)</h4>
+                <p className="text-[10px] text-purple-400 font-mono">Password & Nonce Never Sent Over Network</p>
               </div>
             </div>
             <span className="text-xs font-mono text-purple-300">Identity: @{username}</span>
           </div>
 
-          {/* Secret Display */}
-          <div className="p-3.5 rounded-xl bg-navy-950 border border-purple-500/20 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-300 font-semibold flex items-center space-x-1.5">
-                <Key className="w-3.5 h-3.5 text-purple-400" />
-                <span>Alice's Secret Key (x):</span>
-              </span>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={secretX}
-                  onChange={(e) => setSecretX(parseInt(e.target.value) || 1)}
-                  className="w-14 px-2 py-0.5 rounded bg-navy-900 border border-purple-500/40 text-amber-300 font-mono font-bold text-center text-xs"
-                />
-                <span className="text-[10px] text-slate-400">(Alice real secret is 3)</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-xs font-mono text-slate-400 pt-1 border-t border-navy-800">
-              <span>Public Key (y = 2^x mod 23):</span>
-              <span className="text-cyan-400 font-bold">y = {computePublicKey(BigInt(secretX)).toString()}</span>
-            </div>
-          </div>
-
-          {/* Protocol Values Computed Locally */}
-          <div className="p-3.5 rounded-xl bg-navy-950 border border-navy-800 space-y-2 font-mono text-xs">
+          {/* Random Numbers Generated for this Round */}
+          <div className="p-3.5 rounded-xl bg-navy-950 border border-purple-500/20 space-y-2.5 font-mono text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Random Nonce (r):</span>
-              <span className="text-amber-400 font-bold">r = {nonceR}</span>
+              <span className="text-slate-300 font-semibold">Private Witness (x):</span>
+              <span className="text-amber-300 font-bold">x = {registeredData.scalar.toString()} (Sealed in memory)</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Commitment (t = 2^r mod 23):</span>
-              <span className="text-purple-300 font-bold">t = {commitmentT ? commitmentT.toString() : '9'}</span>
+              <span className="text-slate-400">Random Nonce Generated (r):</span>
+              <span className="text-amber-400 font-bold">{nonceR ? `r = ${nonceR.toString()}` : 'Click any button above'}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Received Challenge (e):</span>
-              <span className="text-blue-400 font-bold">e = {challengeE ? challengeE.toString() : '4'}</span>
+              <span className="text-slate-400">Commitment Sent (t = 2^r mod 23):</span>
+              <span className="text-purple-300 font-bold">{commitmentT ? `t = ${commitmentT.toString()}` : '—'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Server Random Challenge Received (e):</span>
+              <span className="text-blue-400 font-bold">{challengeE ? `e = ${challengeE.toString()}` : '—'}</span>
             </div>
             <div className="flex items-center justify-between pt-1 border-t border-navy-800">
-              <span className="text-slate-300 font-semibold">Response z = (r + e·x) mod 11:</span>
-              <span className={`font-bold px-2 py-0.5 rounded ${
-                activeScenario === 'tampered' ? 'text-amber-300 bg-amber-500/10' : 'text-emerald-400 bg-emerald-500/10'
-              }`}>
-                z = {responseZ !== null ? responseZ.toString() : '6'}
+              <span className="text-slate-300 font-semibold">Calculated Response (z):</span>
+              <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded">
+                {responseZ !== null ? `z = ${responseZ.toString()}` : '—'}
               </span>
-            </div>
-          </div>
-
-          {/* Step-by-Step Buttons */}
-          <div className="space-y-2 pt-2">
-            <div className="flex gap-2">
-              <button
-                onClick={handleStep1}
-                disabled={loading}
-                className="flex-1 py-2.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs transition disabled:opacity-40 cursor-pointer"
-              >
-                1. Send Commitment (t)
-              </button>
-              <button
-                onClick={handleStep2}
-                disabled={loading || step === 0}
-                className="flex-1 py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition disabled:opacity-40 cursor-pointer"
-              >
-                2. Submit Response (z)
-              </button>
             </div>
           </div>
         </div>
@@ -441,59 +455,47 @@ export default function DualConsoleDashboard({ onProofComplete }) {
               </div>
               <div>
                 <h4 className="text-xs font-bold text-white">Verifier Server (Node.js API)</h4>
-                <p className="text-[10px] text-cyan-400 font-mono">Verifies Without Seeing Secret</p>
+                <p className="text-[10px] text-cyan-400 font-mono">Zero Knowledge of Password</p>
               </div>
             </div>
             <span className="text-xs font-mono text-slate-400">p=23, q=11, g=2</span>
           </div>
 
-          {/* Registered Identity & Received Wire Data */}
-          <div className="p-3.5 rounded-xl bg-navy-950 border border-cyan-500/20 space-y-2 font-mono text-xs">
+          {/* What Server Sees Over Wire */}
+          <div className="p-3.5 rounded-xl bg-navy-950 border border-cyan-500/20 space-y-2.5 font-mono text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Server Registered Key for Alice:</span>
-              <span className="text-cyan-300 font-bold">y = 8 (Fixed on Server)</span>
+              <span className="text-slate-400">Alice Registered Public Key:</span>
+              <span className="text-cyan-300 font-bold">y = {registeredData.publicKey.toString()}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Received Commitment (t):</span>
-              <span className="text-purple-300 font-semibold">{commitmentT ? commitmentT.toString() : 'Awaiting...'}</span>
+              <span className="text-purple-300 font-semibold">{commitmentT ? commitmentT.toString() : '—'}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Server Challenge Issued (e):</span>
-              <span className="text-blue-400 font-semibold">{challengeE ? challengeE.toString() : 'Awaiting...'}</span>
+              <span className="text-slate-400">Random Challenge Issued (e):</span>
+              <span className="text-blue-400 font-semibold">{challengeE ? challengeE.toString() : '—'}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Received Response (z):</span>
-              <span className="text-emerald-400 font-semibold">{responseZ !== null ? responseZ.toString() : 'Awaiting...'}</span>
+              <span className="text-slate-400">Received Answer (z):</span>
+              <span className="text-emerald-400 font-semibold">{responseZ !== null ? responseZ.toString() : '—'}</span>
             </div>
           </div>
 
-          {/* What the server evaluates */}
-          <div className="p-3.5 rounded-xl bg-navy-950 border border-navy-800 space-y-2 text-xs font-mono">
-            <span className="text-slate-400 block font-bold text-[10px] uppercase">Verifier Equation:</span>
-            <div className="grid grid-cols-2 gap-2 text-center">
-              <div className="p-2 rounded bg-navy-900 border border-navy-700">
-                <span className="text-[10px] text-slate-400 block">LHS: g^z mod p</span>
-                <span className="font-bold text-blue-400 text-sm">
-                  {verificationResult?.equation?.lhs || '2^z mod 23'}
-                </span>
-              </div>
-              <div className="p-2 rounded bg-navy-900 border border-navy-700">
-                <span className="text-[10px] text-slate-400 block">RHS: (t · y^e) mod p</span>
-                <span className="font-bold text-purple-400 text-sm">
-                  {verificationResult?.equation?.rhs || '(t · 8^e) mod 23'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Status Note */}
-          <div className="text-center text-xs text-slate-400">
+          {/* Mathematical Check */}
+          <div className="p-3 rounded-xl bg-navy-950 border border-navy-800 text-xs font-mono text-center">
             {verificationResult ? (
-              <span className={verificationResult.isValid ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                {verificationResult.isValid ? '✓ Access Granted: Math check passed' : '✗ Access Denied: Math check failed'}
-              </span>
+              <div className="space-y-1">
+                <span className={verificationResult.isValid ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                  {verificationResult.isValid ? '✓ Mathematics Verified (Accepted)' : '✗ Mathematics Mismatch (Rejected)'}
+                </span>
+                <p className="text-[11px] text-slate-400">
+                  {verificationResult.isValid 
+                    ? `LHS (${verificationResult.equation?.lhs}) matches RHS (${verificationResult.equation?.rhs})`
+                    : `LHS (${verificationResult.equation?.lhs}) does not match RHS (${verificationResult.equation?.rhs})`}
+                </p>
+              </div>
             ) : (
-              <span>Click any test button above to run verification</span>
+              <span className="text-slate-500">Click any test button above to run</span>
             )}
           </div>
         </div>
