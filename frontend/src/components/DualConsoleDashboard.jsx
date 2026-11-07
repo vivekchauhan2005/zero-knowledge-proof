@@ -361,29 +361,87 @@ export default function DualConsoleDashboard({ onProofComplete }) {
             <span className="text-xs font-mono text-purple-300">Identity: @{username}</span>
           </div>
 
-          {/* Secret Display */}
-          <div className="p-3.5 rounded-xl bg-navy-950 border border-purple-500/20 space-y-2">
-            <div className="flex items-center justify-between text-xs">
+          {/* Secret Display with Clear ACCEPT/REJECT Indicators */}
+          <div className="p-3.5 rounded-xl bg-navy-950 border border-purple-500/20 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <span className="text-slate-300 font-semibold flex items-center space-x-1.5">
                 <Key className="w-3.5 h-3.5 text-purple-400" />
                 <span>Alice's Secret Key (x):</span>
               </span>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={secretX}
-                  onChange={(e) => setSecretX(parseInt(e.target.value) || 1)}
-                  className="w-14 px-2 py-0.5 rounded bg-navy-900 border border-purple-500/40 text-amber-300 font-mono font-bold text-center text-xs"
-                />
-                <span className="text-[10px] text-slate-400">(Alice real secret is 3)</span>
+              <div className="flex items-center space-x-1.5">
+                <button
+                  type="button"
+                  onClick={() => { setSecretX(3); handleReset(); }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition cursor-pointer ${
+                    secretX === 3
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500'
+                      : 'bg-navy-900 text-slate-400 border-navy-700 hover:text-white'
+                  }`}
+                >
+                  🟢 Use 3 (Accept)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSecretX(7); handleReset(); }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition cursor-pointer ${
+                    secretX === 7
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500'
+                      : 'bg-navy-900 text-slate-400 border-navy-700 hover:text-white'
+                  }`}
+                >
+                  🔴 Use 7 (Reject)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const invalidPool = [1, 2, 4, 5, 6, 7, 8, 9, 10];
+                    const rand = invalidPool[Math.floor(Math.random() * invalidPool.length)];
+                    setSecretX(rand);
+                    handleReset();
+                  }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition cursor-pointer ${
+                    secretX !== 3 && secretX !== 7
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500'
+                      : 'bg-navy-900 text-slate-400 border-navy-700 hover:text-white'
+                  }`}
+                  title="Generate a random wrong secret"
+                >
+                  🎲 Random (Reject)
+                </button>
               </div>
             </div>
 
-            <div className="flex items-center justify-between text-xs font-mono text-slate-400 pt-1 border-t border-navy-800">
-              <span>Public Key (y = 2^x mod 23):</span>
-              <span className="text-cyan-400 font-bold">y = {computePublicKey(BigInt(secretX)).toString()}</span>
+            <div className="flex items-center space-x-3">
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={secretX}
+                onChange={(e) => { setSecretX(parseInt(e.target.value) || 1); handleReset(); }}
+                className={`w-20 px-3 py-1.5 rounded-lg border font-mono font-bold text-center text-sm focus:outline-none ${
+                  secretX === 3
+                    ? 'bg-emerald-950/40 border-emerald-500 text-emerald-300'
+                    : 'bg-rose-950/40 border-rose-500 text-rose-300'
+                }`}
+              />
+              <div className="text-xs">
+                {secretX === 3 ? (
+                  <span className="text-emerald-400 font-bold flex items-center space-x-1">
+                    <span>✓ Real Secret Key (3) → WILL BE ACCEPTED!</span>
+                  </span>
+                ) : (
+                  <span className="text-rose-400 font-bold flex items-center space-x-1">
+                    <span>✗ Wrong Key ({secretX}) → WILL BE REJECTED!</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-xs font-mono text-slate-400 pt-1.5 border-t border-navy-800">
+              <span>Public Key (y = 2^{secretX} mod 23):</span>
+              <span className={`font-bold ${secretX === 3 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                y = {computePublicKey(BigInt(secretX)).toString()} {secretX === 3 ? '(Matches Server!)' : '(Does NOT Match Server!)'}
+              </span>
             </div>
           </div>
 
