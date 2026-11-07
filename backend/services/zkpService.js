@@ -101,10 +101,19 @@ class ZkpService {
    */
   createSession(username, publicKey, commitment, ttlMs = SESSION_CONFIG.CHALLENGE_EXPIRY_MS) {
     const cleanUsername = username ? username.trim().toLowerCase() : 'demo-prover';
-    let y = publicKey;
+    let y = null;
 
-    if (!y && this.users.has(cleanUsername)) {
+    // In secure authentication, server verifies against the user's registered public key
+    if (this.users.has(cleanUsername)) {
       y = this.users.get(cleanUsername).publicKey;
+    } else if (publicKey) {
+      y = publicKey.toString();
+      // Register newly seen user
+      this.users.set(cleanUsername, {
+        username: cleanUsername,
+        publicKey: BigInt(publicKey).toString(),
+        registeredAt: new Date().toISOString()
+      });
     }
 
     if (!y) {
