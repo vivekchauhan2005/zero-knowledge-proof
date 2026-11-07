@@ -45,14 +45,6 @@ export default function LandingHero({ onStartDemo, onLearnMore }) {
             <span>Step-by-Step Protocol Breakdown</span>
           </button>
         </div>
-
-        {/* Educational Parameter Badge */}
-        <div className="inline-flex items-center space-x-2 text-xs font-mono text-amber-300 bg-amber-500/10 border border-amber-500/30 px-4 py-2 rounded-lg">
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-          <span>
-            Classroom Educational Parameters: <strong>p = 23</strong> (prime), <strong>q = 11</strong> (subgroup order), <strong>g = 2</strong> (generator). Small numbers allow exact blackboard calculations. Production requires 2048-bit MODP or Ed25519 curves.
-          </span>
-        </div>
       </div>
 
       {/* Three Fundamental Pillars of ZKP */}
