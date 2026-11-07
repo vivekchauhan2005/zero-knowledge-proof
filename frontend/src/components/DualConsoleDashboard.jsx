@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Key, Lock, Send, RefreshCw, CheckCircle2, XCircle, ShieldAlert, 
-  ArrowRight, Terminal, Shield, Eye, EyeOff, Sparkles, UserCheck, UserX, Flame
+  ArrowRight, Terminal, Shield, Eye, EyeOff, Sparkles, UserCheck, UserX, Flame, Shuffle, Play
 } from 'lucide-react';
 import { 
   computePublicKey, 
@@ -42,6 +42,11 @@ export default function DualConsoleDashboard({ onProofComplete }) {
     const parsed = parseInt(val);
     const num = isNaN(parsed) ? 1 : Math.max(1, Math.min(10, parsed));
     setSecretX(num);
+    if (num === 3) {
+      setActiveScenario('honest');
+    } else {
+      setActiveScenario('impostor');
+    }
     handleReset();
   };
 
@@ -75,6 +80,18 @@ export default function DualConsoleDashboard({ onProofComplete }) {
     setUsername('alice');
     setSecretX(3);
     handleReset();
+  };
+
+  // Random Reject: pick any number except 3
+  const handleRandomReject = () => {
+    const wrongNumbers = [1, 2, 4, 5, 6, 7, 8, 9, 10];
+    const pick = wrongNumbers[Math.floor(Math.random() * wrongNumbers.length)];
+    handleOneClickTest('impostor', pick);
+  };
+
+  // Run verification immediately with whatever secret is currently typed
+  const handleRunCurrentSecret = () => {
+    handleOneClickTest(activeScenario, secretX);
   };
 
   // Quick Reset
@@ -152,7 +169,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
   };
 
   // ONE-CLICK QUICK RUN: Runs Step 1 and Step 2 automatically
-  const handleOneClickTest = async (scenarioType) => {
+  const handleOneClickTest = async (scenarioType, overrideSecret = null) => {
     try {
       setLoading(true);
       setErrorMsg(null);
@@ -162,7 +179,15 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       let targetX = 3;
       let shouldTamper = false;
 
-      if (scenarioType === 'honest') {
+      if (overrideSecret !== null) {
+        targetX = overrideSecret;
+        setSecretX(overrideSecret);
+        if (targetX === 3) {
+          setActiveScenario('honest');
+        } else {
+          setActiveScenario('impostor');
+        }
+      } else if (scenarioType === 'honest') {
         setActiveScenario('honest');
         targetX = 3; // Alice's real secret x = 3 -> WILL ACCEPT
         setSecretX(3);
@@ -248,75 +273,99 @@ export default function DualConsoleDashboard({ onProofComplete }) {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* 🟢 BUTTON 1: DEMONSTRATE ACCEPT */}
           <button
             onClick={() => handleOneClickTest('honest')}
             disabled={loading}
-            className={`p-4 rounded-xl border text-left transition cursor-pointer ${
+            className={`p-3.5 rounded-xl border text-left transition cursor-pointer ${
               activeScenario === 'honest' && verificationResult?.isValid
                 ? 'bg-emerald-950/60 border-emerald-500 shadow-lg shadow-emerald-500/20'
                 : 'bg-navy-950/80 border-navy-700 hover:border-emerald-500/50'
             }`}
           >
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between mb-1">
               <span className="flex items-center space-x-1.5 text-emerald-400 font-bold text-xs">
-                <UserCheck className="w-4 h-4" />
-                <span>1. Test ACCEPT (Secret x = 3)</span>
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>1. Test ACCEPT (3)</span>
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
-                WILL PASS
+                PASS
               </span>
             </div>
-            <p className="text-xs text-slate-300 leading-snug">
-              Alice uses correct secret <strong className="text-emerald-300">x = 3</strong>. Equation matches: <strong className="text-emerald-300">LHS = RHS</strong>!
+            <p className="text-[11px] text-slate-300 leading-snug">
+              Alice uses secret <strong className="text-emerald-300">x = 3</strong>. Equation matches: <strong className="text-emerald-300">LHS = RHS</strong>!
             </p>
           </button>
 
-          {/* 🔴 BUTTON 2: DEMONSTRATE REJECT (WRONG SECRET) */}
+          {/* 🔴 BUTTON 2: DEMONSTRATE REJECT (WRONG SECRET 7) */}
           <button
             onClick={() => handleOneClickTest('impostor')}
             disabled={loading}
-            className={`p-4 rounded-xl border text-left transition cursor-pointer ${
-              activeScenario === 'impostor' && verificationResult && !verificationResult.isValid
+            className={`p-3.5 rounded-xl border text-left transition cursor-pointer ${
+              activeScenario === 'impostor' && verificationResult && !verificationResult.isValid && secretX === 7
                 ? 'bg-rose-950/60 border-rose-500 shadow-lg shadow-rose-500/20'
                 : 'bg-navy-950/80 border-navy-700 hover:border-rose-500/50'
             }`}
           >
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between mb-1">
               <span className="flex items-center space-x-1.5 text-rose-400 font-bold text-xs">
-                <UserX className="w-4 h-4" />
-                <span>2. Test REJECT (Wrong Secret x = 7)</span>
+                <UserX className="w-3.5 h-3.5" />
+                <span>2. Test REJECT (7)</span>
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono font-bold">
-                WILL FAIL
+                FAIL
               </span>
             </div>
-            <p className="text-xs text-slate-300 leading-snug">
+            <p className="text-[11px] text-slate-300 leading-snug">
               Impostor enters wrong secret <strong className="text-rose-300">x = 7</strong>. Equation fails: <strong className="text-rose-300">LHS ≠ RHS</strong>!
             </p>
           </button>
 
-          {/* ⚠️ BUTTON 3: DEMONSTRATE REJECT (TAMPERED) */}
+          {/* 🎲 BUTTON 3: DEMONSTRATE RANDOM REJECT */}
+          <button
+            onClick={handleRandomReject}
+            disabled={loading}
+            className={`p-3.5 rounded-xl border text-left transition cursor-pointer ${
+              activeScenario === 'impostor' && verificationResult && !verificationResult.isValid && secretX !== 7
+                ? 'bg-indigo-950/60 border-indigo-500 shadow-lg shadow-indigo-500/20'
+                : 'bg-navy-950/80 border-navy-700 hover:border-indigo-500/50'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="flex items-center space-x-1.5 text-indigo-400 font-bold text-xs">
+                <Shuffle className="w-3.5 h-3.5" />
+                <span>3. Random REJECT</span>
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono font-bold">
+                FAIL
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-snug">
+              Picks random wrong secret from <strong className="text-indigo-300">[1, 2, 4..10]</strong> and verifies.
+            </p>
+          </button>
+
+          {/* ⚠️ BUTTON 4: DEMONSTRATE REJECT (TAMPERED) */}
           <button
             onClick={() => handleOneClickTest('tampered')}
             disabled={loading}
-            className={`p-4 rounded-xl border text-left transition cursor-pointer ${
+            className={`p-3.5 rounded-xl border text-left transition cursor-pointer ${
               activeScenario === 'tampered' && verificationResult && !verificationResult.isValid
                 ? 'bg-amber-950/60 border-amber-500 shadow-lg shadow-amber-500/20'
                 : 'bg-navy-950/80 border-navy-700 hover:border-amber-500/50'
             }`}
           >
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between mb-1">
               <span className="flex items-center space-x-1.5 text-amber-400 font-bold text-xs">
-                <Flame className="w-4 h-4" />
-                <span>3. Test REJECT (Tampered z)</span>
+                <Flame className="w-3.5 h-3.5" />
+                <span>4. Test REJECT (Tampered)</span>
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
-                WILL FAIL
+                FAIL
               </span>
             </div>
-            <p className="text-xs text-slate-300 leading-snug">
+            <p className="text-[11px] text-slate-300 leading-snug">
               Hacker alters response <strong className="text-amber-300">z by +1</strong> in transit. Rejected!
             </p>
           </button>
@@ -421,30 +470,50 @@ export default function DualConsoleDashboard({ onProofComplete }) {
               </div>
             </div>
 
-            <div className="flex items-center space-x-3">
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 type="number"
                 min="1"
                 max="10"
                 value={secretX}
                 onChange={(e) => handleSecretChange(e.target.value)}
-                className={`w-16 px-2.5 py-1 rounded-lg border font-mono font-bold text-center text-sm focus:outline-none ${
+                className={`w-16 px-2.5 py-1.5 rounded-lg border font-mono font-bold text-center text-sm focus:outline-none ${
                   secretX === 3
                     ? 'bg-emerald-950/40 border-emerald-500 text-emerald-300'
                     : 'bg-rose-950/40 border-rose-500 text-rose-300'
                 }`}
                 title="Type any number from 1 to 10"
               />
-              <div className="text-xs">
-                {secretX === 3 ? (
-                  <span className="text-emerald-400 font-bold flex items-center space-x-1">
-                    <span>✓ Real Secret Key (3) → WILL ACCEPT!</span>
-                  </span>
-                ) : (
-                  <span className="text-rose-400 font-bold flex items-center space-x-1">
-                    <span>✗ Wrong Secret Key ({secretX}) → WILL REJECT!</span>
-                  </span>
-                )}
+              <button
+                type="button"
+                onClick={handleRunCurrentSecret}
+                disabled={loading}
+                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-mono text-xs font-bold transition flex items-center space-x-1 cursor-pointer disabled:opacity-50"
+                title="Immediately run full verification with current secret x"
+              >
+                <span>▶️ Test Secret x = {secretX}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleRandomReject}
+                disabled={loading}
+                className="px-2.5 py-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 font-mono text-xs transition flex items-center space-x-1 cursor-pointer disabled:opacity-50"
+                title="Pick and run a random wrong secret"
+              >
+                <span>🎲 Random Reject</span>
+              </button>
+            </div>
+
+            <div className="p-2 rounded-lg bg-navy-900 border border-navy-800 text-[11px] font-mono space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Verdict for x = {secretX}:</span>
+                <span className={`font-bold ${secretX === 3 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {secretX === 3 ? '✅ WILL ACCEPT (Matches Server Key y = 8)' : `❌ WILL REJECT (Wrong Key 2^${secretX} mod 23 ≠ 8)`}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5 border-t border-navy-800">
+                <span>Accepts: <strong className="text-emerald-400">x = 3</strong></span>
+                <span>Rejects: <strong className="text-rose-400">x = 1, 2, 4, 5, 6, 7, 8, 9, 10</strong></span>
               </div>
             </div>
 
