@@ -1,14 +1,13 @@
 import React from 'react';
-import { Shield, Lock, Terminal, Cpu, Bug, History, GraduationCap, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Shield, Lock, Terminal, Cpu, Bug, History, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function Navbar({ activeTab, setActiveTab, backendStatus }) {
   const navItems = [
-    { id: 'dashboard', label: 'ZKP Dual Console', icon: Cpu },
-    { id: 'walkthrough', label: 'Step-by-Step Flow', icon: Terminal },
+    { id: 'dashboard', label: 'Authentication Console', icon: Cpu },
+    { id: 'walkthrough', label: 'How It Works (Step-by-Step)', icon: Terminal },
     { id: 'math', label: 'Math Verification', icon: Lock },
     { id: 'attacks', label: 'Attack Simulation Lab', icon: Bug },
-    { id: 'audit', label: 'Audit History', icon: History },
-    { id: 'viva', label: 'Viva & Architecture', icon: GraduationCap },
+    { id: 'audit', label: 'Audit Logs', icon: History },
   ];
 
   return (

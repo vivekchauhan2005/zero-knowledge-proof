@@ -6,7 +6,6 @@ import StepWalkthrough from './components/StepWalkthrough';
 import MathVerification from './components/MathVerification';
 import AttackLab from './components/AttackLab';
 import AuditHistory from './components/AuditHistory';
-import VivaAndArchitecture from './components/VivaAndArchitecture';
 import { api } from './services/api';
 import { Shield, ExternalLink, Heart } from 'lucide-react';
 
@@ -69,8 +68,6 @@ export default function App() {
         {activeTab === 'attacks' && <AttackLab onSimulationComplete={() => {}} />}
 
         {activeTab === 'audit' && <AuditHistory />}
-
-        {activeTab === 'viva' && <VivaAndArchitecture />}
       </main>
 
       {/* Academic Footer */}

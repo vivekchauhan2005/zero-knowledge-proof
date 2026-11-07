@@ -29,15 +29,12 @@ class ZkpService {
 
   initializeDemoUsers() {
     try {
-      const demoSecret = "student-crypto-2026";
-      const derived = deriveScalar(demoSecret, EDUCATIONAL_PARAMS.q);
-      const y = computePublicKey(derived.scalar, EDUCATIONAL_PARAMS.p, EDUCATIONAL_PARAMS.g);
-      
+      // Standard demo user Alice: secret x = 3, public key y = 2^3 mod 23 = 8
       this.users.set("alice", {
         username: "alice",
-        publicKey: y.toString(),
+        publicKey: "8",
         registeredAt: new Date().toISOString(),
-        demoNote: "Standard demonstration user (secret: student-crypto-2026, x=derived)"
+        demoNote: "Standard demonstration user (Secret x = 3, Public Key y = 8)"
       });
     } catch (e) {
       console.error("Failed to initialize demo users:", e.message);
@@ -214,6 +211,7 @@ class ZkpService {
         isValid: false,
         status: 'REJECTED',
         error: 'Challenge session has expired. Re-authenticate with a fresh commitment.',
+        equation: { lhs: 'EXPIRED', rhs: 'EXPIRED', match: false },
         audit: auditEntry
       };
     }
@@ -237,6 +235,7 @@ class ZkpService {
         isValid: false,
         status: 'REJECTED',
         error: 'Replay attack prevented: Challenge has already been used.',
+        equation: { lhs: 'REPLAY_BLOCKED', rhs: 'REPLAY_BLOCKED', match: false },
         audit: auditEntry
       };
     }
