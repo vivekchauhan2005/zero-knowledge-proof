@@ -37,38 +37,12 @@ export default function DualConsoleDashboard({ onProofComplete }) {
   const [verificationResult, setVerificationResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  // Generate a brand new random secret key for Alice
-  const generateNewRandomSecret = async () => {
-    try {
-      setLoading(true);
-      const randX = Math.floor(Math.random() * 9) + 1;
-      setSecretX(randX);
-      setAliceRealSecret(randX);
-      const pubY = computePublicKey(BigInt(randX)).toString();
-      await api.registerUser(username, pubY);
-      setServerRegisteredPubKey(pubY);
-      handleReset();
-    } catch (err) {
-      console.error('Failed to register new secret:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Handle manual typing of Secret Key x
-  const handleSecretChange = async (val) => {
+  const handleSecretChange = (val) => {
     const parsed = parseInt(val);
     const num = isNaN(parsed) ? 1 : Math.max(1, Math.min(10, parsed));
     setSecretX(num);
-    setAliceRealSecret(num);
-    const pubY = computePublicKey(BigInt(num)).toString();
-    setServerRegisteredPubKey(pubY);
     handleReset();
-    try {
-      await api.registerUser(username, pubY);
-    } catch (err) {
-      console.error('Failed to register typed key:', err);
-    }
   };
 
   // Handle manual typing of Nonce r
@@ -83,17 +57,15 @@ export default function DualConsoleDashboard({ onProofComplete }) {
   const setupHonestScenario = () => {
     setActiveScenario('honest');
     setUsername('alice');
-    setSecretX(aliceRealSecret);
+    setSecretX(3);
     handleReset();
   };
 
-  // 2. SCENARIO B: IMPOSTOR WITH RANDOM WRONG SECRET (WILL REJECT)
+  // 2. SCENARIO B: IMPOSTOR WITH WRONG SECRET (WILL REJECT)
   const setupImpostorScenario = () => {
     setActiveScenario('impostor');
     setUsername('alice');
-    const wrongKeys = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(n => n !== aliceRealSecret);
-    const randWrong = wrongKeys[Math.floor(Math.random() * wrongKeys.length)];
-    setSecretX(randWrong);
+    setSecretX(7);
     handleReset();
   };
 
@@ -101,7 +73,7 @@ export default function DualConsoleDashboard({ onProofComplete }) {
   const setupTamperedScenario = () => {
     setActiveScenario('tampered');
     setUsername('alice');
-    setSecretX(aliceRealSecret);
+    setSecretX(3);
     handleReset();
   };
 
@@ -127,13 +99,8 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       const t = computeCommitment(r);
       setCommitmentT(t);
 
-      // Register Alice's current secret key public key
-      const pubY = computePublicKey(BigInt(secretX)).toString();
-      await api.registerUser(username, pubY);
-      setServerRegisteredPubKey(pubY);
-
-      // Prover sends commitment t to server for user 'alice'
-      const commitRes = await api.submitCommitment(username, pubY, t.toString());
+      // Prover sends commitment t to server for user 'alice' (Alice's registered key y=8)
+      const commitRes = await api.submitCommitment(username, '8', t.toString());
       const sId = commitRes.session.id;
       setSessionId(sId);
 
@@ -142,7 +109,9 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       const e = BigInt(chalRes.challenge);
       setChallengeE(e);
 
-      // Prover calculates response z = (r + e * x) mod q
+      // Prover calculates response z = (r + e * secretX) mod q
+      // When secretX === 3, z will match Alice's key y=8 (ACCEPT)
+      // When secretX !== 3, z will mismatch Alice's key y=8 (REJECT)
       const xBig = BigInt(secretX);
       let calculatedZ = computeResponse(r, e, xBig, EDUCATIONAL_PARAMS.q);
 
@@ -190,33 +159,29 @@ export default function DualConsoleDashboard({ onProofComplete }) {
       setVerificationResult(null);
 
       const r = BigInt(nonceR || 5);
-      let targetX = secretX;
+      let targetX = 3;
       let shouldTamper = false;
-
-      // Always register Alice's chosen secret key
-      const pubY = computePublicKey(BigInt(secretX)).toString();
-      await api.registerUser(username, pubY);
-      setServerRegisteredPubKey(pubY);
 
       if (scenarioType === 'honest') {
         setActiveScenario('honest');
-        targetX = secretX;
+        targetX = 3; // Alice's real secret x = 3 -> WILL ACCEPT
+        setSecretX(3);
       } else if (scenarioType === 'impostor') {
         setActiveScenario('impostor');
-        // Pick a wrong secret different from secretX
-        const wrongKeys = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(n => n !== secretX);
-        targetX = wrongKeys[Math.floor(Math.random() * wrongKeys.length)];
+        targetX = 7; // Impostor wrong secret x = 7 -> WILL REJECT
+        setSecretX(7);
       } else if (scenarioType === 'tampered') {
         setActiveScenario('tampered');
-        targetX = secretX;
+        targetX = 3; // Tampered response -> WILL REJECT
+        setSecretX(3);
         shouldTamper = true;
       }
 
-      // Step 1: Commit
+      // Step 1: Commit against Alice's real registered key (8)
       const t = computeCommitment(r);
       setCommitmentT(t);
 
-      const commitRes = await api.submitCommitment('alice', pubY, t.toString());
+      const commitRes = await api.submitCommitment('alice', '8', t.toString());
       const sId = commitRes.session.id;
       setSessionId(sId);
 
@@ -297,14 +262,14 @@ export default function DualConsoleDashboard({ onProofComplete }) {
             <div className="flex items-center justify-between mb-1.5">
               <span className="flex items-center space-x-1.5 text-emerald-400 font-bold text-xs">
                 <UserCheck className="w-4 h-4" />
-                <span>1. Test ACCEPT (Uses Entered Secret x = {secretX})</span>
+                <span>1. Test ACCEPT (Secret x = 3)</span>
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
                 WILL PASS
               </span>
             </div>
             <p className="text-xs text-slate-300 leading-snug">
-              Tests proof with your entered secret <strong className="text-emerald-300">x = {secretX}</strong>. Equation will match!
+              Alice uses correct secret <strong className="text-emerald-300">x = 3</strong>. Equation matches: <strong className="text-emerald-300">LHS = RHS</strong>!
             </p>
           </button>
 
@@ -321,14 +286,14 @@ export default function DualConsoleDashboard({ onProofComplete }) {
             <div className="flex items-center justify-between mb-1.5">
               <span className="flex items-center space-x-1.5 text-rose-400 font-bold text-xs">
                 <UserX className="w-4 h-4" />
-                <span>2. Test REJECT (Wrong Secret)</span>
+                <span>2. Test REJECT (Wrong Secret x = 7)</span>
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono font-bold">
                 WILL FAIL
               </span>
             </div>
             <p className="text-xs text-slate-300 leading-snug">
-              Impostor enters a wrong secret <strong className="text-rose-300">≠ {secretX}</strong>. Equation will mismatch!
+              Impostor enters wrong secret <strong className="text-rose-300">x = 7</strong>. Equation fails: <strong className="text-rose-300">LHS ≠ RHS</strong>!
             </p>
           </button>
 
@@ -421,38 +386,73 @@ export default function DualConsoleDashboard({ onProofComplete }) {
             <span className="text-xs font-mono text-purple-300">Identity: @{username}</span>
           </div>
 
-          {/* Secret Display - Fully editable manual input! */}
-          <div className="p-3.5 rounded-xl bg-navy-950 border border-purple-500/20 space-y-2">
-            <div className="flex items-center justify-between text-xs">
+          {/* Secret Display - Allows typing or one-click preset */}
+          <div className="p-3.5 rounded-xl bg-navy-950 border border-purple-500/20 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <span className="text-slate-300 font-semibold flex items-center space-x-1.5">
                 <Key className="w-3.5 h-3.5 text-purple-400" />
                 <span>Alice's Secret Key (x ∈ [1, 10]):</span>
               </span>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={secretX}
-                  onChange={(e) => handleSecretChange(e.target.value)}
-                  className="w-14 px-2 py-1 rounded bg-navy-900 border border-purple-500/50 text-amber-300 font-mono font-bold text-center text-xs focus:outline-none focus:border-purple-400"
-                  title="Type any secret number from 1 to 10"
-                />
+              <div className="flex items-center space-x-1.5">
                 <button
                   type="button"
-                  onClick={generateNewRandomSecret}
-                  className="px-2 py-1 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[10px] font-mono cursor-pointer transition flex items-center space-x-1"
-                  title="Pick a random secret"
+                  onClick={() => { setSecretX(3); handleReset(); }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition cursor-pointer ${
+                    secretX === 3
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500'
+                      : 'bg-navy-900 text-slate-400 border-navy-700 hover:text-white'
+                  }`}
+                  title="Set secret to 3 (Alice's real key -> Will ACCEPT)"
                 >
-                  <Sparkles className="w-2.5 h-2.5" />
-                  <span>Random</span>
+                  🟢 Use 3 (Accept)
                 </button>
+                <button
+                  type="button"
+                  onClick={() => { setSecretX(7); handleReset(); }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition cursor-pointer ${
+                    secretX === 7
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500'
+                      : 'bg-navy-900 text-slate-400 border-navy-700 hover:text-white'
+                  }`}
+                  title="Set secret to 7 (Wrong key -> Will REJECT)"
+                >
+                  🔴 Use 7 (Reject)
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-3">
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={secretX}
+                onChange={(e) => handleSecretChange(e.target.value)}
+                className={`w-16 px-2.5 py-1 rounded-lg border font-mono font-bold text-center text-sm focus:outline-none ${
+                  secretX === 3
+                    ? 'bg-emerald-950/40 border-emerald-500 text-emerald-300'
+                    : 'bg-rose-950/40 border-rose-500 text-rose-300'
+                }`}
+                title="Type any number from 1 to 10"
+              />
+              <div className="text-xs">
+                {secretX === 3 ? (
+                  <span className="text-emerald-400 font-bold flex items-center space-x-1">
+                    <span>✓ Real Secret Key (3) → WILL ACCEPT!</span>
+                  </span>
+                ) : (
+                  <span className="text-rose-400 font-bold flex items-center space-x-1">
+                    <span>✗ Wrong Secret Key ({secretX}) → WILL REJECT!</span>
+                  </span>
+                )}
               </div>
             </div>
 
             <div className="flex items-center justify-between text-xs font-mono text-slate-400 pt-1 border-t border-navy-800">
               <span>Public Key (y = 2^{secretX} mod 23):</span>
-              <span className="text-cyan-400 font-bold">y = {computePublicKey(BigInt(secretX)).toString()}</span>
+              <span className={`font-bold ${secretX === 3 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                y = {computePublicKey(BigInt(secretX)).toString()} {secretX === 3 ? '(Matches Server y=8!)' : '(Does NOT Match Server y=8!)'}
+              </span>
             </div>
           </div>
 
